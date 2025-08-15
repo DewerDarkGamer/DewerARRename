@@ -1,115 +1,43 @@
-from PIL import Image
 import cv2
-import numpy as np
 import os
-import re
-from pathlib import Path
-import qrcode.image.svg
+from pyzxing import BarCodeReader
 
 class BarcodeProcessor:
-    """Class for processing images to extract barcode or QR code data using OpenCV"""
-
     def __init__(self):
-        self.supported_formats = ['jpg', 'jpeg', 'JPG', 'JPEG']
-        self.qr_detector = cv2.QRCodeDetector()
-        self.barcode_detector = cv2.barcode_BarcodeDetector()
+        self.reader = BarCodeReader()
 
-    def process_file(self, file_path):
+    def process_image(self, image_path):
         """
-        Process a single file to extract barcode data
-
-        Args:
-            file_path (Path): Path to the image file
-
-        Returns:
-            dict: Processing result with success status and extracted data
+        อ่านบาร์โค้ดจากไฟล์ภาพ
         """
-        try:
-            # Open and process the image
-            with Image.open(file_path) as image:
-                if image.mode != 'RGB':
-                    image = image.convert('RGB')
-
-                cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-
-                # 1) Try to detect QR code
-                data, vertices_array, _ = self.qr_detector.detectAndDecode(cv_image)
-                if data:
-                    barcode_data = data
-                    barcode_type = 'QRCODE'
-                else:
-                    # 2) Try to detect linear or other barcodes
-                    ok, decoded_info, decoded_type, _ = self.barcode_detector.detectAndDecode(cv_image)
-                    if ok and decoded_info and decoded_info[0]:
-                        barcode_data = decoded_info[0]
-                        barcode_type = decoded_type[0] if decoded_type else 'BARCODE'
-                    else:
-                        return {
-                            'success': False,
-                            'error': 'ไม่พบบาร์โค้ดหรือ QR โค้ดในรูปภาพ',
-                            'barcode_data': None,
-                            'barcode_type': None,
-                            'new_name': None
-                        }
-
-                new_name = self.generate_filename(barcode_data, file_path.suffix)
-
-                return {
-                    'success': True,
-                    'error': None,
-                    'barcode_data': barcode_data,
-                    'barcode_type': barcode_type,
-                    'new_name': new_name
-                }
-
-        except Exception as e:
-            return {
-                'success': False,
-                'error': f'เกิดข้อผิดพลาดในการประมวลผล: {str(e)}',
-                'barcode_data': None,
-                'barcode_type': None,
-                'new_name': None
-            }
-
-    def generate_filename(self, barcode_data, original_extension):
-        """Generate a safe filename from barcode data"""
-        safe_name = re.sub(r'[<>:"/\\|?*]', '_', barcode_data)
-        safe_name = re.sub(r'[^\w\-_.]', '_', safe_name)
-        safe_name = re.sub(r'_+', '_', safe_name).strip('_')
-
-        if not safe_name:
-            safe_name = 'barcode_data'
-
-        max_name_length = 240 - len(original_extension)
-        if len(safe_name) > max_name_length:
-            safe_name = safe_name[:max_name_length]
-
-        return f"{safe_name}{original_extension}"
-
-    def validate_image(self, file_path):
-        """Check if file is a supported JPEG"""
-        try:
-            extension = file_path.suffix.lower().lstrip('.')
-            if extension not in ['jpg', 'jpeg']:
-                return False
-            with Image.open(file_path) as image:
-                image.verify()
-            return True
-        except Exception:
-            return False
-
-    def get_file_info(self, file_path):
-        """Get basic file information"""
-        try:
-            stat = file_path.stat()
-            return {
-                'name': file_path.name,
-                'size': stat.st_size,
-                'size_mb': round(stat.st_size / (1024 * 1024), 2),
-                'modified': stat.st_mtime
-            }
-        except Exception:
+        if not os.path.exists(image_path):
             return None
+
+        # ใช้ pyzxing อ่านบาร์โค้ด
+        results = self.reader.decode(image_path)
+
+        if not results:
+            return None
+
+        # คืนค่าข้อความแรกที่เจอ
+        return results[0]['parsed']
+
+    def process_folder(self, folder_path):
+        """
+        อ่านบาร์โค้ดจากทุกไฟล์ในโฟลเดอร์
+        """
+        if not os.path.exists(folder_path):
+            return []
+
+        data = []
+        for file_name in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, file_name)
+            if os.path.isfile(file_path):
+                barcode_text = self.process_image(file_path)
+                if barcode_text:
+                    data.append((file_name, barcode_text))
+        return data
+
 
     
 def detect_linear_barcode(self, cv_image):

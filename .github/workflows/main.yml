@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install opencv-python pandas pillow qrcode pytesseract pyzbar pyinstaller
+        pip install opencv-python pandas pillow qrcode pyzbar pyinstaller
 
     - name: Build EXE with PyInstaller
       run: |
@@ -37,9 +37,7 @@ jobs:
           --hidden-import=pandas ^
           --hidden-import=numpy ^
           --hidden-import=qrcode ^
-          --hidden-import=pyzbar.pyzbar desktop_app.py ^
-          --collect-submodules=cv2 ^
-          --collect-submodules=pytesseract ^
+          --hidden-import=pyzbar.pyzbar ^
           desktop_app.py
       shell: cmd
 

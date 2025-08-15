@@ -25,7 +25,16 @@ jobs:
 
     - name: Build EXE with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --name=JPG_Barcode_Renamer --add-data="desktop_app.py;." --add-data="barcode_processor.py;." --hidden-import=tkinter --hidden-import=cv2 --hidden-import=PIL --hidden-import=pandas --hidden-import=numpy --hidden-import=qrcode desktop_app.py
+        pyinstaller ^
+          --onefile ^
+          --windowed ^
+          --name=JPG_Barcode_Renamer ^
+          --add-data="desktop_app.py;." ^
+          --add-data="barcode_processor.py;." ^
+          --hidden-import=tkinter ^
+          --collect-submodules=cv2 ^
+          --collect-submodules=pytesseract ^
+          desktop_app.py
       shell: cmd
 
     - name: Upload .exe as artifact

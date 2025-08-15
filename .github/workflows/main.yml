@@ -32,6 +32,12 @@ jobs:
           --add-data="desktop_app.py;." ^
           --add-data="barcode_processor.py;." ^
           --hidden-import=tkinter ^
+          --hidden-import=cv2 
+          --hidden-import=PIL
+          --hidden-import=pandas
+          --hidden-import=numpy
+          --hidden-import=qrcode
+          --hidden-import=pyzbar.pyzbar desktop_app.py
           --collect-submodules=cv2 ^
           --collect-submodules=pytesseract ^
           desktop_app.py

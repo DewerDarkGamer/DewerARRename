@@ -5,60 +5,55 @@ import os
 import re
 from pathlib import Path
 import qrcode.image.svg
-from pyzbar.pyzbar import decode
 
 class BarcodeProcessor:
-    """Class for processing images to extract barcode data"""
-    
+    """Class for processing images to extract barcode or QR code data using OpenCV"""
+
     def __init__(self):
         self.supported_formats = ['jpg', 'jpeg', 'JPG', 'JPEG']
-    
+        self.qr_detector = cv2.QRCodeDetector()
+        self.barcode_detector = cv2.barcode_BarcodeDetector()
+
     def process_file(self, file_path):
         """
         Process a single file to extract barcode data
-        
+
         Args:
             file_path (Path): Path to the image file
-            
+
         Returns:
             dict: Processing result with success status and extracted data
         """
         try:
             # Open and process the image
             with Image.open(file_path) as image:
-                # Convert to RGB if necessary (for JPEGs with different color modes)
                 if image.mode != 'RGB':
                     image = image.convert('RGB')
-                
-                # Convert PIL image to OpenCV format
+
                 cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-                
-                # Try to detect QR codes first
-                qr_detector = cv2.QRCodeDetector()
-                data, vertices_array, binary_qrcode = qr_detector.detectAndDecode(cv_image)
-                
+
+                # 1) Try to detect QR code
+                data, vertices_array, _ = self.qr_detector.detectAndDecode(cv_image)
                 if data:
                     barcode_data = data
                     barcode_type = 'QRCODE'
                 else:
-                    # Try to detect linear barcodes using template matching and edge detection
-                    barcode_result = self.detect_linear_barcode(cv_image)
-                    
-                    if barcode_result:
-                        barcode_data = barcode_result
-                        barcode_type = 'LINEAR_BARCODE'
+                    # 2) Try to detect linear or other barcodes
+                    ok, decoded_info, decoded_type, _ = self.barcode_detector.detectAndDecode(cv_image)
+                    if ok and decoded_info and decoded_info[0]:
+                        barcode_data = decoded_info[0]
+                        barcode_type = decoded_type[0] if decoded_type else 'BARCODE'
                     else:
                         return {
                             'success': False,
-                            'error': 'ไม่พบบาร์โค้ดในรูปภาพ (รองรับ QR โค้ดและบาร์โค้ดเชิงเส้น)',
+                            'error': 'ไม่พบบาร์โค้ดหรือ QR โค้ดในรูปภาพ',
                             'barcode_data': None,
                             'barcode_type': None,
                             'new_name': None
                         }
-                
-                # Generate new filename
+
                 new_name = self.generate_filename(barcode_data, file_path.suffix)
-                
+
                 return {
                     'success': True,
                     'error': None,
@@ -66,7 +61,7 @@ class BarcodeProcessor:
                     'barcode_type': barcode_type,
                     'new_name': new_name
                 }
-                
+
         except Exception as e:
             return {
                 'success': False,
@@ -75,73 +70,36 @@ class BarcodeProcessor:
                 'barcode_type': None,
                 'new_name': None
             }
-    
+
     def generate_filename(self, barcode_data, original_extension):
-        """
-        Generate a safe filename from barcode data
-        
-        Args:
-            barcode_data (str): The barcode data
-            original_extension (str): The original file extension
-            
-        Returns:
-            str: Safe filename
-        """
-        # Clean the barcode data to make it filename-safe
-        # Remove or replace invalid characters
+        """Generate a safe filename from barcode data"""
         safe_name = re.sub(r'[<>:"/\\|?*]', '_', barcode_data)
         safe_name = re.sub(r'[^\w\-_.]', '_', safe_name)
-        
-        # Remove multiple underscores
-        safe_name = re.sub(r'_+', '_', safe_name)
-        
-        # Remove leading/trailing underscores
-        safe_name = safe_name.strip('_')
-        
-        # Ensure the name is not empty
+        safe_name = re.sub(r'_+', '_', safe_name).strip('_')
+
         if not safe_name:
             safe_name = 'barcode_data'
-        
-        # Limit length to avoid filesystem issues
+
         max_name_length = 240 - len(original_extension)
         if len(safe_name) > max_name_length:
             safe_name = safe_name[:max_name_length]
-        
+
         return f"{safe_name}{original_extension}"
-    
+
     def validate_image(self, file_path):
-        """
-        Validate if the file is a supported image format
-        
-        Args:
-            file_path (Path): Path to the image file
-            
-        Returns:
-            bool: True if valid, False otherwise
-        """
+        """Check if file is a supported JPEG"""
         try:
             extension = file_path.suffix.lower().lstrip('.')
             if extension not in ['jpg', 'jpeg']:
                 return False
-            
-            # Try to open the image
             with Image.open(file_path) as image:
                 image.verify()
-            
             return True
         except Exception:
             return False
-    
+
     def get_file_info(self, file_path):
-        """
-        Get basic file information
-        
-        Args:
-            file_path (Path): Path to the file
-            
-        Returns:
-            dict: File information
-        """
+        """Get basic file information"""
         try:
             stat = file_path.stat()
             return {
@@ -152,6 +110,7 @@ class BarcodeProcessor:
             }
         except Exception:
             return None
+
     
 def detect_linear_barcode(self, cv_image):
     """

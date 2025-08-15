@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install opencv-python pandas pillow qrcode pytesseract pyinstaller
+        pip install opencv-python pandas pillow qrcode pytesseract pyzbar pyinstaller
 
     - name: Build EXE with PyInstaller
       run: |

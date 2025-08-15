@@ -5,7 +5,7 @@ import os
 import re
 from pathlib import Path
 import qrcode.image.svg
-import pytesseract
+from pyzbar.pyzbar import decode
 
 class BarcodeProcessor:
     """Class for processing images to extract barcode data"""
@@ -153,76 +153,20 @@ class BarcodeProcessor:
         except Exception:
             return None
     
-    def detect_linear_barcode(self, cv_image):
-        """
-        Detect linear barcodes using edge detection and OCR
-        This approach looks for barcode patterns and text in the image
-        
-        Args:
-            cv_image: OpenCV image
-            
-        Returns:
-            str: Detected barcode data or None
-        """
-        try:
-            # Convert to grayscale
-            gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
-            
-            # First, try to extract text from the entire image to look for barcode patterns
-            full_text_result = self.extract_barcode_text_from_image(gray)
-            if full_text_result:
-                return full_text_result
-            
-            # Apply Gaussian blur to reduce noise
-            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-            
-            # Apply threshold to get binary image
-            _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            
-            # Try OCR on different sections of the image
-            h, w = thresh.shape
-            
-            # Divide image into sections and try OCR on each
-            sections = [
-                (0, 0, w, h//4),  # Top section
-                (0, h//4, w, h//2),  # Upper middle
-                (0, h//2, w, 3*h//4),  # Lower middle  
-                (0, 3*h//4, w, h),  # Bottom section
-            ]
-            
-            for x, y, x2, y2 in sections:
-                roi = thresh[y:y2, x:x2]
-                text_result = self.extract_text_from_barcode_region(roi)
-                if text_result:
-                    return text_result
-            
-            # Find contours to locate barcode regions
-            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
-            # Look for rectangular regions that might contain barcodes
-            for contour in contours:
-                # Get bounding rectangle
-                x, y, w, h = cv2.boundingRect(contour)
-                
-                # Filter by aspect ratio (barcodes are typically wider than tall)
-                aspect_ratio = w / h if h > 0 else 0
-                area = cv2.contourArea(contour)
-                
-                # Look for regions that could be barcodes
-                if (aspect_ratio > 2.0 and area > 1000) or (aspect_ratio > 1.5 and area > 5000):
-                    # Extract the region
-                    roi = thresh[y:y+h, x:x+w]
-                    
-                    # Try to read text from this region
-                    text_result = self.extract_text_from_barcode_region(roi)
-                    if text_result:
-                        return text_result
-                
+def detect_linear_barcode(self, cv_image):
+    """
+    Detect any 1D/2D barcodes in the image using pyzbar
+    """
+    try:
+        barcodes = decode(cv_image)
+        if not barcodes:
             return None
-            
-        except Exception as e:
-            print(f"Error in linear barcode detection: {e}")
-            return None
+        # คืนค่าข้อมูลของบาร์โค้ดแรกที่เจอ
+        return barcodes[0].data.decode('utf-8')
+    except Exception as e:
+        print(f"Error in linear barcode detection: {e}")
+        return None
+
     
     def extract_barcode_text_from_image(self, gray_image):
         """

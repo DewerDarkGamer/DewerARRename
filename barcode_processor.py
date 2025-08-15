@@ -5,6 +5,7 @@ import os
 import re
 from pathlib import Path
 import qrcode.image.svg
+import pytesseract
 
 class BarcodeProcessor:
     """Class for processing images to extract barcode data"""
@@ -155,7 +156,7 @@ class BarcodeProcessor:
     def detect_linear_barcode(self, cv_image):
         """
         Detect linear barcodes using edge detection and OCR
-        This is a simplified approach since we don't have zbar
+        This approach looks for barcode patterns and text in the image
         
         Args:
             cv_image: OpenCV image
@@ -167,11 +168,33 @@ class BarcodeProcessor:
             # Convert to grayscale
             gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
             
+            # First, try to extract text from the entire image to look for barcode patterns
+            full_text_result = self.extract_barcode_text_from_image(gray)
+            if full_text_result:
+                return full_text_result
+            
             # Apply Gaussian blur to reduce noise
             blurred = cv2.GaussianBlur(gray, (5, 5), 0)
             
             # Apply threshold to get binary image
             _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            
+            # Try OCR on different sections of the image
+            h, w = thresh.shape
+            
+            # Divide image into sections and try OCR on each
+            sections = [
+                (0, 0, w, h//4),  # Top section
+                (0, h//4, w, h//2),  # Upper middle
+                (0, h//2, w, 3*h//4),  # Lower middle  
+                (0, 3*h//4, w, h),  # Bottom section
+            ]
+            
+            for x, y, x2, y2 in sections:
+                roi = thresh[y:y2, x:x2]
+                text_result = self.extract_text_from_barcode_region(roi)
+                if text_result:
+                    return text_result
             
             # Find contours to locate barcode regions
             contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -182,7 +205,7 @@ class BarcodeProcessor:
                 x, y, w, h = cv2.boundingRect(contour)
                 
                 # Filter by aspect ratio (barcodes are typically wider than tall)
-                aspect_ratio = w / h
+                aspect_ratio = w / h if h > 0 else 0
                 area = cv2.contourArea(contour)
                 
                 # Look for regions that could be barcodes
@@ -190,17 +213,10 @@ class BarcodeProcessor:
                     # Extract the region
                     roi = thresh[y:y+h, x:x+w]
                     
-                    # Try to read text from this region using simple pattern matching
-                    # Look for patterns that look like barcode data
+                    # Try to read text from this region
                     text_result = self.extract_text_from_barcode_region(roi)
                     if text_result:
                         return text_result
-            
-            # If no clear barcode regions found, try OCR on the whole image
-            # This might catch text that represents barcode data
-            full_text = self.extract_text_from_barcode_region(thresh)
-            if full_text:
-                return full_text
                 
             return None
             
@@ -208,10 +224,58 @@ class BarcodeProcessor:
             print(f"Error in linear barcode detection: {e}")
             return None
     
+    def extract_barcode_text_from_image(self, gray_image):
+        """
+        Extract barcode text from the entire image using OCR
+        Looks for patterns that match common barcode formats
+        
+        Args:
+            gray_image: Grayscale OpenCV image
+            
+        Returns:
+            str: Detected barcode text or None
+        """
+        try:
+            # Use OCR to extract all text from the image
+            text = pytesseract.image_to_string(gray_image, config='--psm 6')
+            
+            if text:
+                # Split text into lines and look for barcode patterns
+                lines = text.split('\n')
+                
+                for line in lines:
+                    line = line.strip()
+                    
+                    # Remove asterisks that are common in barcode text
+                    clean_line = line.replace('*', '').strip()
+                    
+                    # Look for alphanumeric patterns that look like barcode data
+                    # Pattern: letters and numbers (like ARHZ43I03901)
+                    pattern_matches = re.findall(r'[A-Z]{2,}[0-9I]{2,}[A-Z0-9I]*', clean_line)
+                    if pattern_matches:
+                        # Return the longest match (most likely to be barcode)
+                        result = max(pattern_matches, key=len)
+                        # Clean up common OCR mistakes (1 vs I)
+                        if len(result) >= 8:
+                            return result
+                    
+                    # Also look for patterns with numbers followed by letters
+                    pattern_matches = re.findall(r'[A-Z0-9I]{8,}', clean_line)
+                    if pattern_matches:
+                        # Filter out common words and return barcode-like patterns
+                        for match in pattern_matches:
+                            if any(c.isdigit() for c in match):
+                                return match
+            
+            return None
+            
+        except Exception as e:
+            print(f"Error extracting barcode text from image: {e}")
+            return None
+    
     def extract_text_from_barcode_region(self, roi):
         """
-        Extract text from a potential barcode region
-        This is a simplified approach without proper OCR
+        Extract text from a potential barcode region using OCR
         
         Args:
             roi: Region of interest (binary image)
@@ -220,32 +284,27 @@ class BarcodeProcessor:
             str: Extracted text or None
         """
         try:
-            # For now, we'll look for patterns in the filename or 
-            # use simple heuristics to extract potential barcode data
+            # Use OCR to extract text from the region
+            text = pytesseract.image_to_string(roi, config='--psm 8 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789*')
             
-            # Since we can see from the image that there are alphanumeric codes
-            # like "ARR249104405" visible, we can try to extract similar patterns
+            if text:
+                # Clean the text
+                text = text.strip()
+                # Remove asterisks that are common in barcode text
+                text = text.replace('*', '')
+                
+                # Look for alphanumeric patterns that look like barcode data
+                # Pattern: letters followed by numbers (like ARHZ43I03901)
+                pattern = re.search(r'[A-Z0-9]{6,}', text)
+                if pattern:
+                    return pattern.group()
+                    
+                # If no clear pattern, return the cleaned text if it's reasonable length
+                if 6 <= len(text) <= 20 and text.isalnum():
+                    return text
             
-            # This is a placeholder - in a real implementation, 
-            # we would use proper OCR library like pytesseract
-            # But for the demo, we'll return a pattern based on what we see
-            
-            # Look for common barcode patterns in the image
-            # The sample image shows codes like "ARR249104405"
-            
-            # For demonstration, we'll return a sample code
-            # In real use, this would be replaced with actual OCR
-            sample_codes = [
-                "ARR249104405",
-                "AP1268445", 
-                "QA234567",
-                "WO891234"
-            ]
-            
-            # Return the first sample code for demo purposes
-            # In real implementation, this would use OCR to read actual text
-            return sample_codes[0]
+            return None
             
         except Exception as e:
-            print(f"Error extracting text: {e}")
+            print(f"Error extracting text with OCR: {e}")
             return None

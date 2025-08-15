@@ -23,20 +23,9 @@ jobs:
           pip install --upgrade pip
           pip install opencv-python pillow numpy pandas qrcode pyinstaller pyzbar
 
-      - name: Build EXE with PyInstaller
-        run: |
-          pyinstaller --onefile --windowed ^
-            --name=JPG_Barcode_Renamer ^
-            --add-data "desktop_app.py;." ^
-            --add-data "barcode_processor.py;." ^
-            --hidden-import=tkinter ^
-            --hidden-import=cv2 ^
-            --hidden-import=PIL ^
-            --hidden-import=pandas ^
-            --hidden-import=numpy ^
-            --hidden-import=qrcode ^
-            --hidden-import=pyzbar ^
-            desktop_app.py
+- name: Build EXE with PyInstaller
+  run: pyinstaller --onefile --windowed --name=JPG_Barcode_Renamer --add-data "desktop_app.py;." --add-data "barcode_processor.py;." desktop_app.py
+
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v3

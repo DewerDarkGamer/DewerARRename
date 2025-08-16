@@ -1,12 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_all
+
+datas = [('app.py', '.'), ('barcode_processor.py', '.'), ('.streamlit', '.streamlit')]
+binaries = []
+hiddenimports = ['streamlit', 'cv2', 'PIL', 'pandas', 'numpy', 'qrcode']
+tmp_ret = collect_all('streamlit')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('cv2')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
     ['launcher.py'],
     pathex=[],
-    binaries=[],
-    datas=[('app.py', '.'), ('barcode_processor.py', '.'), ('.streamlit', '.streamlit')],
-    hiddenimports=['streamlit', 'cv2', 'PIL', 'pandas', 'numpy', 'qrcode'],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

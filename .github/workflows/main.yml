@@ -26,7 +26,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install streamlit pandas pillow pyinstaller opencv-python-headless qrcode numpy numpy
+        pip install streamlit pandas pillow pyinstaller opencv-python-headless pyzbar qrcode numpy
         pip install pytest pytest-cov flake8
     
     - name: Lint with flake8
@@ -36,14 +36,19 @@ jobs:
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libzbar0
+    
     - name: Test main scripts
       run: |
         python -m py_compile app.py
         python -m py_compile barcode_processor.py
-        python -m py_compile sample_scripts/hello_world.py
-        python -m py_compile sample_scripts/gui_app.py
-        python -m py_compile build_scripts/build_console.py
-        python -m py_compile build_scripts/build_windowed.py
+        python -m py_compile desktop_app.py
+        python -m py_compile launcher.py
+        python -m py_compile build_exe.py
+        python -m py_compile create_portable_app.py
 
   build-executables:
     runs-on: ${{ matrix.os }}
@@ -70,28 +75,38 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller streamlit pandas pillow opencv-python-headless qrcode
+        pip install pyinstaller streamlit pandas pillow opencv-python-headless pyzbar qrcode numpy
     
-    - name: Build Streamlit barcode app
+    - name: Install system dependencies (Linux/macOS)
+      if: runner.os != 'Windows'
       run: |
-        pyinstaller --onefile --console --name barcode_renamer_${{ matrix.os }} --add-data "barcode_processor.py:." launcher.py
+        if [ "$RUNNER_OS" == "Linux" ]; then
+          sudo apt-get update
+          sudo apt-get install -y libzbar0
+        elif [ "$RUNNER_OS" == "macOS" ]; then
+          brew install zbar
+        fi
     
-    - name: Build sample console app
+    - name: Build Desktop App
       run: |
-        pyinstaller --onefile --console --name hello_world_${{ matrix.os }} sample_scripts/hello_world.py
+        pyinstaller --onefile --console --name JPG_Barcode_Renamer_Desktop_${{ matrix.os }} --hidden-import=pyzbar.pyzbar --add-data "barcode_processor.py:." desktop_app.py
     
-    - name: Build sample GUI app
+    - name: Build Streamlit Launcher
       run: |
-        pyinstaller --onefile --windowed --name gui_app_${{ matrix.os }} sample_scripts/gui_app.py
+        pyinstaller --onefile --console --name JPG_Barcode_Renamer_Web_${{ matrix.os }} --hidden-import=pyzbar.pyzbar --add-data "app.py:." --add-data "barcode_processor.py:." launcher.py
+    
+    - name: Create Portable Package
+      run: |
+        python create_portable_app.py
     
     - name: Upload executables
       uses: actions/upload-artifact@v4
       with:
         name: executables-${{ matrix.os }}
         path: |
-          dist/barcode_renamer_${{ matrix.os }}${{ matrix.executable-suffix }}
-          dist/hello_world_${{ matrix.os }}${{ matrix.executable-suffix }}
-          dist/gui_app_${{ matrix.os }}${{ matrix.executable-suffix }}
+          dist/JPG_Barcode_Renamer_Desktop_${{ matrix.os }}${{ matrix.executable-suffix }}
+          dist/JPG_Barcode_Renamer_Web_${{ matrix.os }}${{ matrix.executable-suffix }}
+          dist/JPG_Barcode_Renamer_Portable.zip
 
   build-web-app:
     runs-on: ubuntu-latest
@@ -108,7 +123,12 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install streamlit pandas pillow pyinstaller opencv-python-headless qrcode numpy
+        pip install streamlit pandas pillow pyinstaller opencv-python-headless pyzbar qrcode numpy
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libzbar0
     
     - name: Test Streamlit app
       run: |
@@ -122,12 +142,13 @@ jobs:
         # Remove unnecessary files
         rm -rf .git .github __pycache__ *.pyc
         # Create requirements.txt
-        echo "streamlit>=1.48.0" > requirements.txt
-        echo "pandas>=2.0.0" >> requirements.txt
-        echo "pillow>=10.0.0" >> requirements.txt
-        echo "opencv-python-headless>=4.8.0" >> requirements.txt
-        echo "qrcode>=7.4.0" >> requirements.txt
-        echo "numpy>=1.24.0" >> requirements.txt
+        echo "streamlit>=1.48.1" > requirements.txt
+        echo "pandas>=2.3.1" >> requirements.txt
+        echo "pillow>=11.3.0" >> requirements.txt
+        echo "opencv-python>=4.12.0.88" >> requirements.txt
+        echo "pyzbar>=0.1.9" >> requirements.txt
+        echo "qrcode>=8.2" >> requirements.txt
+        echo "numpy>=2.2.6" >> requirements.txt
         echo "pyinstaller>=6.15.0" >> requirements.txt
         tar -czf ../jpg-barcode-renamer.tar.gz .
     
@@ -180,13 +201,14 @@ jobs:
         cat > Dockerfile << 'EOF'
         FROM python:3.11-slim
 
-        # Install system dependencies for OpenCV
+        # Install system dependencies for OpenCV and zbar
         RUN apt-get update && apt-get install -y \
             libglib2.0-0 \
             libsm6 \
             libxext6 \
             libxrender-dev \
             libgomp1 \
+            libzbar0 \
             && rm -rf /var/lib/apt/lists/*
 
         # Set working directory
@@ -194,7 +216,7 @@ jobs:
 
         # Copy requirements and install Python dependencies
         COPY . .
-        RUN pip install --no-cache-dir streamlit pandas pillow opencv-python-headless qrcode numpy
+        RUN pip install --no-cache-dir streamlit pandas pillow opencv-python-headless pyzbar qrcode numpy
 
         # Expose port
         EXPOSE 8501

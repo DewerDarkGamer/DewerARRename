@@ -1,26 +1,204 @@
-name: build-exe
+name: Build and Test Python to EXE Converter
+
 on:
-  workflow_dispatch:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
 
 jobs:
-  build:
-    runs-on: windows-latest
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, '3.10', '3.11']
+
     steps:
-      - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flask pyinstaller pillow pyzbar opencv-python-headless
+        pip install pytest pytest-cov flake8
+    
+    - name: Lint with flake8
+      run: |
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Test sample scripts
+      run: |
+        python -m py_compile sample_scripts/hello_world.py
+        python -m py_compile sample_scripts/gui_app.py
+        python -m py_compile build_scripts/build_console.py
+        python -m py_compile build_scripts/build_windowed.py
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.10"
+  build-executables:
+    runs-on: ${{ matrix.os }}
+    needs: test
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          - os: windows-latest
+            executable-suffix: '.exe'
+          - os: ubuntu-latest
+            executable-suffix: ''
+          - os: macos-latest
+            executable-suffix: ''
 
-      - name: Install dependencies
-        run: pip install opencv-python pillow numpy pandas qrcode pyinstaller pyzbar
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+    
+    - name: Build sample console app
+      run: |
+        pyinstaller --onefile --console --name hello_world_${{ matrix.os }} sample_scripts/hello_world.py
+    
+    - name: Build sample GUI app (Windows/Linux only)
+      if: matrix.os != 'macos-latest'
+      run: |
+        pyinstaller --onefile --windowed --name gui_app_${{ matrix.os }} sample_scripts/gui_app.py
+    
+    - name: Build sample GUI app (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        pyinstaller --onefile --windowed --name gui_app_${{ matrix.os }} sample_scripts/gui_app.py
+    
+    - name: Upload executables
+      uses: actions/upload-artifact@v3
+      with:
+        name: executables-${{ matrix.os }}
+        path: |
+          dist/hello_world_${{ matrix.os }}${{ matrix.executable-suffix }}
+          dist/gui_app_${{ matrix.os }}${{ matrix.executable-suffix }}
 
-      - name: Build EXE
-        run: pyinstaller --onefile --windowed --name JPG_Barcode_Renamer desktop_app.py
+  build-web-app:
+    runs-on: ubuntu-latest
+    needs: test
 
-      - name: Upload EXE
-        uses: actions/upload-artifact@v3
-        with:
-          name: JPG_Barcode_Renamer
-          path: dist/JPG_Barcode_Renamer.exe
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flask pyinstaller pillow pyzbar opencv-python-headless
+    
+    - name: Test Flask app
+      run: |
+        python -c "import app; print('Flask app imports successfully')"
+    
+    - name: Create distribution package
+      run: |
+        mkdir -p dist-web
+        cp -r . dist-web/
+        cd dist-web
+        # Remove unnecessary files
+        rm -rf .git .github __pycache__ *.pyc
+        # Create requirements.txt
+        pip freeze > requirements.txt
+        tar -czf ../python-to-exe-converter.tar.gz .
+    
+    - name: Upload web app package
+      uses: actions/upload-artifact@v3
+      with:
+        name: web-app-package
+        path: python-to-exe-converter.tar.gz
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [test, build-executables, build-web-app]
+    if: github.event_name == 'release'
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+    
+    - name: Create release assets
+      run: |
+        mkdir -p release-assets
+        
+        # Copy executables
+        cp executables-windows-latest/* release-assets/ 2>/dev/null || true
+        cp executables-ubuntu-latest/* release-assets/ 2>/dev/null || true
+        cp executables-macos-latest/* release-assets/ 2>/dev/null || true
+        
+        # Copy web app package
+        cp web-app-package/* release-assets/ 2>/dev/null || true
+        
+        # List all files
+        ls -la release-assets/
+    
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release-assets/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Create Dockerfile
+      run: |
+        cat > Dockerfile << 'EOF'
+        FROM python:3.11-slim
+
+        # Install system dependencies
+        RUN apt-get update && apt-get install -y \
+            build-essential \
+            && rm -rf /var/lib/apt/lists/*
+
+        # Set working directory
+        WORKDIR /app
+
+        # Copy requirements and install Python dependencies
+        COPY . .
+        RUN pip install --no-cache-dir flask pyinstaller pillow pyzbar opencv-python-headless
+
+        # Expose port
+        EXPOSE 5000
+
+        # Run the application
+        CMD ["python", "app.py"]
+        EOF
+    
+    - name: Build Docker image
+      run: |
+        docker build -t python-to-exe-converter .
+    
+    - name: Test Docker image
+      run: |
+        docker run --rm -d -p 5000:5000 --name test-container python-to-exe-converter
+        sleep 10
+        curl -f http://localhost:5000 || exit 1
+        docker stop test-container

@@ -1,0 +1,75 @@
+name: Build Windows EXE
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements_github.txt
+        Write-Host "Dependencies installed"
+    
+    - name: Build EXE
+      run: |
+        Write-Host "Building EXE with PyInstaller..."
+        python pyinstaller_spec.py
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "Build failed with exit code $LASTEXITCODE"
+          exit 1
+        }
+    
+    - name: Test EXE
+      run: |
+        if (Test-Path ".\dist\BarcodeReader_Final.exe") {
+          Write-Host "[SUCCESS] EXE file created successfully"
+          $fileSize = (Get-Item ".\dist\BarcodeReader_Final.exe").Length / 1MB
+          Write-Host "[INFO] File size: $([math]::Round($fileSize, 1)) MB"
+        } else {
+          Write-Host "[ERROR] EXE file not found"
+          exit 1
+        }
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: BarcodeReader-Windows
+        path: dist/BarcodeReader_Final.exe
+    
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: dist/BarcodeReader_Final.exe
+        body: |
+          ## Barcode Reader v${{ github.ref_name }}
+          
+          ### ดาวน์โหลด
+          - **BarcodeReader_Final.exe** - โปรแกรม Desktop สำหรับ Windows (ใช้ ZXing อ่าน Barcode)
+          
+          ### การใช้งาน
+          1. ดาวน์โหลดไฟล์ `BarcodeReader_Final.exe`
+          2. เรียกใช้โปรแกรมโดยไม่ต้องติดตั้ง
+          3. เลือกไฟล์หรือโฟลเดอร์ที่ต้องการประมวลผล
+          
+          ### คุณสมบัติ
+          - อ่าน Barcode จากไฟล์ภาพ JPG/JPEG
+          - เปลี่ยนชื่อไฟล์อัตโนมัติ
+          - รองรับประมวลผลหลายไฟล์และทั้งโฟลเดอร์
+          - ใช้งานได้โดยไม่ต้องติดตั้งโปรแกรมเพิ่มเติม
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
